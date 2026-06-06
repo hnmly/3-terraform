@@ -397,6 +397,7 @@ function renderView(){
  var v=document.getElementById('view');
  if(TAB==='overview')v.innerHTML=viewOverview(DATA);
  else if(TAB==='waf')v.innerHTML=viewWaf(DATA);
+ else if(TAB==='cluster')v.innerHTML=viewCluster(DATA);
  else{var a=DATA.apps.find(function(x){return x.app===TAB});v.innerHTML=a?viewApp(a):''}
  draw();
 }
