@@ -143,6 +143,73 @@ def waf_detail(minutes):
             "by_method": Counter(g(e, "httpRequest", "httpMethod") for e in ev).most_common(),
             "series": sr, "recent": recent}
 
+def cluster_detail():
+    ns = CFG["namespace"]
+    pods = []
+    for ln in run(["kubectl", "top", "pods", "-n", ns, "--no-headers"]).splitlines():
+        x = ln.split()
+        if len(x) >= 3:
+            pods.append({"name": x[0], "cpu": x[1], "mem": x[2]})
+    ntop = {}
+    for ln in run(["kubectl", "top", "nodes", "--no-headers"]).splitlines():
+        x = ln.split()
+        if len(x) >= 5:
+            ntop[x[0]] = {"cpu": x[1], "cpu_pct": x[2], "mem": x[3], "mem_pct": x[4]}
+    nodes = []
+    try:
+        nj = json.loads(run(["kubectl", "get", "nodes", "-o", "json"]) or "{}")
+    except Exception:
+        nj = {}
+    for it in nj.get("items", []):
+        nm = it["metadata"]["name"]
+        lab = it["metadata"].get("labels", {})
+        ready = "?"
+        for cc in it.get("status", {}).get("conditions", []):
+            if cc.get("type") == "Ready":
+                ready = "Ready" if cc.get("status") == "True" else "NotReady"
+        t = ntop.get(nm, {})
+        nodes.append({"name": nm, "type": lab.get("node.kubernetes.io/instance-type", "?"),
+                      "karpenter": "karpenter.sh/nodepool" in lab, "ready": ready,
+                      "cpu": t.get("cpu", "-"), "cpu_pct": t.get("cpu_pct", "-"),
+                      "mem": t.get("mem", "-"), "mem_pct": t.get("mem_pct", "-")})
+    hpas = []
+    try:
+        hj = json.loads(run(["kubectl", "get", "hpa", "-n", ns, "-o", "json"]) or "{}")
+    except Exception:
+        hj = {}
+    for it in hj.get("items", []):
+        sp = it.get("spec", {})
+        st = it.get("status", {})
+        cur = "-"
+        for m in (st.get("currentMetrics") or []):
+            r = m.get("resource", {})
+            if r.get("name") == "cpu":
+                cur = str(r.get("current", {}).get("averageUtilization", "?")) + "%"
+        tgt = "-"
+        for m in (sp.get("metrics") or []):
+            r = m.get("resource", {})
+            if r.get("name") == "cpu":
+                tgt = str(r.get("target", {}).get("averageUtilization", "?")) + "%"
+        hpas.append({"name": it["metadata"]["name"], "cur": cur, "tgt": tgt,
+                     "min": sp.get("minReplicas"), "max": sp.get("maxReplicas"),
+                     "replicas": st.get("currentReplicas")})
+    ncs = []
+    try:
+        ncj = json.loads(run(["kubectl", "get", "nodeclaim", "-o", "json"]) or "{}")
+    except Exception:
+        ncj = {}
+    for it in ncj.get("items", []):
+        lab = it["metadata"].get("labels", {})
+        ready = "?"
+        for cc in it.get("status", {}).get("conditions", []):
+            if cc.get("type") == "Ready":
+                ready = "Ready" if cc.get("status") == "True" else str(cc.get("status"))
+        ncs.append({"name": it["metadata"]["name"], "type": lab.get("node.kubernetes.io/instance-type", "?"),
+                    "cap": lab.get("karpenter.sh/capacity-type", "?"), "ready": ready,
+                    "node": it.get("status", {}).get("nodeName", "-")})
+    return {"pods": pods, "nodes": nodes, "hpa": hpas, "nodeclaims": ncs}
+
+
 HTML = r"""<!doctype html><html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>3과제 로그 대시보드</title>
 <style>
@@ -293,8 +360,30 @@ function viewWaf(d){
   +(w.recent.length?fmtRows(w.recent,[['시각',function(r){return r.ts}],['M',function(r){return r.method}],['URI',function(r){return r.uri}],['룰',function(r){return r.rule}],['IP',function(r){return r.ip}]]):'<div class=muted style="padding:12px">차단 없음</div>')+'</div></div>';
  return kpis+chart+tb+logs;
 }
+function viewCluster(d){
+ var c=d.cluster;
+ var nodes='<div class=card><h2>노드 <span class=sub>'+c.nodes.length+'대</span></h2>'+fmtRows(c.nodes,[
+  ['노드',function(r){return r.name.split('.')[0]}],
+  ['타입',function(r){return r.type+(r.karpenter?' <span class="pill p2">karpenter</span>':' <span class="pill p4">base</span>')}],
+  ['상태',function(r){return r.ready}],
+  ['CPU',function(r){return r.cpu+' ('+r.cpu_pct+')'}],
+  ['MEM',function(r){return r.mem+' ('+r.mem_pct+')'}]])+'</div>';
+ var hpa='<div class=card><h2>HPA</h2>'+fmtRows(c.hpa,[
+  ['이름',function(r){return r.name}],
+  ['CPU 현재/목표',function(r){return r.cur+' / '+r.tgt}],
+  ['min/max',function(r){return r.min+' / '+r.max}],
+  ['replicas',function(r){return r.replicas},1]])+'</div>';
+ var nc='<div class=card><h2>Karpenter NodeClaim <span class=sub>'+c.nodeclaims.length+'</span></h2>'+
+  (c.nodeclaims.length?fmtRows(c.nodeclaims,[
+   ['이름',function(r){return r.name}],['타입',function(r){return r.type}],
+   ['cap',function(r){return r.cap}],['상태',function(r){return r.ready}],
+   ['노드',function(r){return (r.node||'-').split('.')[0]}]]):'<div class=muted style="padding:8px">활성 NodeClaim 없음 (부하 없을 때 정상)</div>')+'</div>';
+ var pods='<div class=card style="margin-top:16px"><h2>Pod 리소스 <span class=sub>'+c.pods.length+'개</span></h2><div class=logbox>'+
+  (c.pods.length?fmtRows(c.pods,[['Pod',function(r){return r.name}],['CPU',function(r){return r.cpu},1],['MEM',function(r){return r.mem},1]]):'<div class=muted style="padding:8px">metrics-server 수집 대기 중</div>')+'</div></div>';
+ return '<div class="grid g2">'+nodes+hpa+'</div><div class="grid g2" style="margin-top:16px">'+nc+'</div>'+pods;
+}
 function renderTabs(){
- var tabs=[['overview','개요']].concat(DATA.apps.map(function(a){return [a.app,a.app]})).concat([['waf','WAF']]);
+ var tabs=[['overview','개요']].concat(DATA.apps.map(function(a){return [a.app,a.app]})).concat([['waf','WAF'],['cluster','클러스터']]);
  document.getElementById('tabs').innerHTML=tabs.map(function(t){return '<div class="tab'+(t[0]===TAB?' on':'')+'" onclick="setTab(\''+t[0]+'\')">'+t[1]+'</div>'}).join('');
 }
 function draw(){
@@ -345,7 +434,7 @@ class H(BaseHTTPRequestHandler):
             q = parse_qs(u.query)
             since = q.get("since", ["15m"])[0]
             wm = int(q.get("waf_minutes", ["15"])[0])
-            data = {"apps": [app_detail(a, since) for a in APPS], "waf": waf_detail(wm)}
+            data = {"apps": [app_detail(a, since) for a in APPS], "waf": waf_detail(wm), "cluster": cluster_detail()}
             self._send(200, "application/json; charset=utf-8", json.dumps(data).encode("utf-8"))
         else:
             self._send(404, "text/plain", b"not found")
