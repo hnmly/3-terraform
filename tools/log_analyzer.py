@@ -17,6 +17,12 @@ import argparse, json, subprocess, sys, time
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
+# Windows 콘솔에서도 한글이 깨지지 않도록 UTF-8 출력 강제
+try:
+    sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
 # SLO 목표 응답시간(ms): 문제 기준
 SLO_MS = {"user": 200, "product": 200, "stress": 1000}
 
