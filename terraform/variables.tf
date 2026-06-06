@@ -168,3 +168,13 @@ variable "waf_rate_limit" {
   type        = number
   default     = 100000
 }
+
+
+# ---------------------------------------------------------------------------
+# Karpenter (노드 오토스케일링)
+# ---------------------------------------------------------------------------
+variable "karpenter_version" {
+  description = "Karpenter Helm 차트 버전 (EKS 버전과 호환되는 값으로 설정)"
+  type        = string
+  default     = "1.2.1"
+}

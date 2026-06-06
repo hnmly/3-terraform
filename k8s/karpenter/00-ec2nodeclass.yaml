@@ -1,0 +1,27 @@
+# =============================================================================
+# Karpenter EC2NodeClass (karpenter.k8s.aws/v1)
+#   - AL2023 (x86), 노드 IAM 역할/서브넷/보안그룹은 Terraform 디스커버리 태그로 연결
+#   - __KARPENTER_NODE_ROLE__ , __CLUSTER_NAME__ 은 deploy 단계에서 치환
+# =============================================================================
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  amiFamily: AL2023
+  role: __KARPENTER_NODE_ROLE__
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: __CLUSTER_NAME__
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: __CLUSTER_NAME__
+  amiSelectorTerms:
+    - alias: al2023@latest
+  # 비용최적화: 루트 볼륨 최소화(gp3)
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 30Gi
+        volumeType: gp3
+        deleteOnTermination: true

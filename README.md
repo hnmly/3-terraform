@@ -122,7 +122,7 @@ terraform output single_endpoint
 | **1. 비정상 요청 처리** | 4 | ① Image 처리율: `/images/*` → CloudFront(S3 OAC) 캐시최적화로 안정 다운로드. ② 비정상요청 처리율: CloudFront **WAF**(CommonRuleSet + KnownBadInputs + RateLimit)가 비정상/변조 요청을 **403** 차단. API 외 경로는 ALB **404** 고정응답 |
 | **2. 고가용성 및 안정성** | 12 | 멀티 AZ(2개+) 서브넷, RDS **Multi-AZ**, 노드그룹 2대+, Deployment replica 2+, `topologySpreadConstraints`(AZ 분산), HPA 자동 확장, ALB 헬스체크 `/healthcheck` |
 | **3. 성능 효율성** | 12 | user/product SLO 0.2s, stress 1.0s 대응 → HPA(CPU 50~60%) 신속 확장, `least_outstanding_requests` 분산, product 동일 id 빈번조회는 PK 조회 최적, 이미지 엣지 캐시 |
-| **4. 비용 최적화** | 12 | t3.medium **최소 노드**(min 2), single NAT GW, db.t3.micro, CloudFront PriceClass_200, ECR 라이프사이클(10개 유지), 노드 max 제한으로 cost ratio(0.5~3.75) 관리 |
+| **4. 비용 최적화** | 12 | 기본 노드 최소(2대) + **Karpenter consolidation**(저활용/빈 노드 즉시 제거), single NAT GW, db.t3.micro, CloudFront PriceClass_200, ECR 라이프사이클. 평상시 노드 최소화로 cost ratio(0.5~3.75)를 낮춤 |
 
 ### 실격/0점 방지 체크 (채점 사전준비)
 - [x] 제출 엔드포인트 = 선수 시스템 단일 엔드포인트(CloudFront) — `terraform output single_endpoint`
@@ -132,6 +132,28 @@ terraform output single_endpoint
 - [x] 모든 리소스 **ap-northeast-2** 단일 리전, 미사용 리소스 없음
 
 ---
+
+
+## 4-1. 노드 오토스케일링 (Karpenter) — 로드 처리 + 비용 최적화 동시 달성
+
+- **인스턴스 타입 명시 제한**: NodePool 에서 `node.kubernetes.io/instance-type In ["t3.medium"]` 로 고정.
+  Karpenter 가 다른 타입을 절대 생성하지 않으므로 "t3.medium 만" 제약을 위반하지 않음.
+- **로드 처리(가용성/성능)**: 부하로 Pod 가 Pending 되면 Karpenter 가 즉시 t3.medium 노드를 추가.
+- **비용 최적화(cost ratio↓)**:
+  - 기본 관리형 노드그룹은 시스템용 최소 2대만 상시 운영(앱도 우선 여기에 배치 → 평상시 추가 노드 0).
+  - 부하 감소 시 `consolidationPolicy: WhenEmptyOrUnderutilized` + `consolidateAfter: 30s` 로 빈/저활용 노드를 빠르게 정리.
+  - `limits.cpu: 16` 으로 최대 t3.medium 8대까지만 (비용 폭주 가드레일).
+- 배포: `deploy.ps1` 가 Terraform output(노드 IAM 역할/클러스터명)으로 NodePool·EC2NodeClass 를 자동 치환 적용.
+
+상태 확인:
+```bash
+kubectl get nodepool,ec2nodeclass
+kubectl get nodes -L node.kubernetes.io/instance-type     # 전부 t3.medium 인지 확인
+kubectl logs -n kube-system -l app.kubernetes.io/name=karpenter -f
+```
+
+> 더 낮은 cost ratio 가 필요하면: 기본 노드그룹을 `node_desired_size=2, node_max_size=2` 로 고정(버스트는 전부 Karpenter)하고,
+> 부하 테스트 동안 차단 없는지 확인하며 `limits.cpu` 와 base 크기를 조정. (spot 전환은 중단 위험이 있어 가용성과 트레이드오프)
 
 ## 5. 비정상 요청(WAF) 튜닝 안내
 

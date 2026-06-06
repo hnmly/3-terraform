@@ -68,3 +68,9 @@ output "product_sa_role_arn" {
   description = "product 앱 S3 접근 IRSA Role ARN"
   value       = module.app_s3_irsa.iam_role_arn
 }
+
+
+output "karpenter_node_iam_role_name" {
+  description = "Karpenter 노드 IAM 역할 이름 (EC2NodeClass.spec.role 에 사용)"
+  value       = module.karpenter.node_iam_role_name
+}

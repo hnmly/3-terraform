@@ -20,6 +20,10 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.private_subnets
 
+  node_security_group_tags = {
+    "karpenter.sh/discovery" = var.cluster_name
+  }
+
   # 핵심 애드온 (관찰가능성/네트워킹 기본기)
   cluster_addons = {
     coredns    = { most_recent = true }

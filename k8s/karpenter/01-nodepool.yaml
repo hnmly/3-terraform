@@ -1,0 +1,44 @@
+# =============================================================================
+# Karpenter NodePool (karpenter.sh/v1)
+#   - 인스턴스 타입을 t3.medium 으로 "명시 제한" (문제 요구사항 준수)
+#   - capacity-type: on-demand (로드 처리 안정성 우선)
+#   - consolidation 으로 저활용/빈 노드 신속 제거 -> cost ratio 최소화
+#   - limits.cpu 로 최대 노드 수 상한(비용 가드레일): 16 vCPU = t3.medium 8대
+# =============================================================================
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: default
+spec:
+  template:
+    metadata:
+      labels:
+        provisioner: karpenter
+    spec:
+      requirements:
+        # ---- t3.medium 만 허용 (다른 타입 생성 금지) ----
+        - key: node.kubernetes.io/instance-type
+          operator: In
+          values: ["t3.medium"]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+      # 노드 최대 수명 (롤링 갱신)
+      expireAfter: 720h
+  # 비용 가드레일: 전체 NodePool CPU 상한
+  limits:
+    cpu: "16"
+  # 비용최적화: 빈/저활용 노드를 빠르게 정리
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 30s
