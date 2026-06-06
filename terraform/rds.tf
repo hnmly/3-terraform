@@ -99,7 +99,7 @@ resource "aws_db_instance" "main" {
   # 관찰가능성: 에러/슬로우 쿼리 로그를 CloudWatch로
   enabled_cloudwatch_logs_exports = ["error", "slowquery"]
 
-  performance_insights_enabled = true
+  performance_insights_enabled = false
 
   tags = merge(local.tags, { Name = var.db_identifier })
 }
