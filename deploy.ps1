@@ -11,6 +11,10 @@
 $ErrorActionPreference = "Stop"
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 
+# PowerShell 위치와 .NET 현재 디렉토리를 스크립트 폴더(레포 루트)로 고정
+Set-Location -Path $PSScriptRoot
+[System.IO.Directory]::SetCurrentDirectory($PSScriptRoot)
+
 $REGION = "ap-northeast-2"
 $ACCOUNT_ID = (aws sts get-caller-identity --query Account --output text)
 $ECR_BASE = "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
