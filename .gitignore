@@ -1,0 +1,29 @@
+# ---- Terraform ----
+**/.terraform/*
+.terraform.tfstate.lock.info
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# 변수/시크릿 (예시는 커밋, 실제 값 파일은 제외)
+*.tfvars
+*.tfvars.json
+!terraform.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# ---- 앱 바이너리 (대회 제공 바이너리는 커밋하지 않음) ----
+docker/user
+docker/product
+docker/stress
+
+# ---- 렌더링된 매니페스트 ----
+k8s/.rendered/
+
+# ---- 기타 ----
+*.log
+.DS_Store
+Thumbs.db

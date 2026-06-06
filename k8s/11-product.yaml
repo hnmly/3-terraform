@@ -1,0 +1,106 @@
+# =============================================================================
+# product 앱: Deployment + Service + HPA
+#   - SLO: 응답 0.2초 / 가용성 5초 이내
+#   - product-sa(ServiceAccount)로 S3 이미지 업로드 권한(IRSA) 사용
+#   - S3 버킷명을 환경변수로 전달 (__S3_BUCKET__ 치환)
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product
+  namespace: apps
+  labels:
+    app: product
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: product
+  template:
+    metadata:
+      labels:
+        app: product
+    spec:
+      serviceAccountName: product-sa
+      containers:
+        - name: product
+          image: __ECR_PRODUCT__:latest
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: db-credentials
+          env:
+            - name: S3_BUCKET
+              value: "__S3_BUCKET__"
+            - name: AWS_REGION
+              value: "ap-northeast-2"
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: product
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-svc
+  namespace: apps
+  labels:
+    app: product
+spec:
+  selector:
+    app: product
+  ports:
+    - port: 80
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: product-hpa
+  namespace: apps
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: product
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15

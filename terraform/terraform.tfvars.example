@@ -1,0 +1,26 @@
+###############################################################################
+# terraform.tfvars.example
+# 실제 사용 시 terraform.tfvars 로 복사하여 값 수정
+###############################################################################
+
+region          = "ap-northeast-2"
+project         = "apdev"
+cluster_name    = "apdev-eks"
+cluster_version = "1.35"
+
+# 노드 (t3.medium 고정). 부하/비용에 맞게 조정
+node_instance_type = "t3.medium"
+node_min_size      = 2
+node_max_size      = 4
+node_desired_size  = 2
+
+# 도메인 사용 시 (미사용이면 빈 문자열 유지 -> CloudFront 기본 도메인 사용)
+# domain_name         = "team01.skills-cloud.com"
+# subdomain           = "api"
+# create_route53_zone = false
+
+# 2단계 배포:
+#   1단계) enable_cloudfront = false 로 코어 인프라 + Ingress(ALB) 생성
+#   2단계) ALB DNS 확인 후 아래 두 값을 설정하고 재배포
+# enable_cloudfront = true
+# alb_dns_name      = "k8s-apps-xxxxxxxx-1234567890.ap-northeast-2.elb.amazonaws.com"
