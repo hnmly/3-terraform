@@ -28,21 +28,28 @@ provider "aws" {
   }
 }
 
-# EKS 클러스터 인증 정보 (클러스터 생성 후 helm/kubernetes 프로바이더가 사용)
-data "aws_eks_cluster_auth" "this" {
-  name = module.eks.cluster_name
-}
-
+# EKS 인증: exec 플러그인으로 매 호출마다 신선한 토큰 발급 (토큰 만료 방지)
+# - aws CLI 가 PATH 에 있어야 함
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint
   cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-  token                  = data.aws_eks_cluster_auth.this.token
+
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", var.region]
+  }
 }
 
 provider "helm" {
   kubernetes {
     host                   = module.eks.cluster_endpoint
     cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-    token                  = data.aws_eks_cluster_auth.this.token
+
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", var.region]
+    }
   }
 }
