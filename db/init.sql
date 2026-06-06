@@ -1,20 +1,23 @@
 -- =============================================================================
 -- DB 초기화 SQL (논리 DB: dev)
--- 문제지 제공 스키마. load_user.dump 적용 전 테이블 생성에 사용.
--- 적용: mysql -h <MYSQL_HOST> -u <MYSQL_USER> -p dev < init.sql
+-- 문제지 제공 스키마 + 성능 최적화(user.email 인덱스).
+-- in-cluster Job(db-init.tf) 또는 수동으로 적용. 멱등(재실행 안전).
 -- =============================================================================
 
 CREATE DATABASE IF NOT EXISTS dev CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE dev;
 
+-- user: GET 조회가 email 기준 -> idx_email 인덱스로 풀스캔 방지(0.2초 SLO)
 CREATE TABLE IF NOT EXISTS user (
   id       VARCHAR(255) NOT NULL,
   username VARCHAR(255) NOT NULL,
   email    VARCHAR(255) NOT NULL,
   PRIMARY KEY (id),
-  UNIQUE KEY uk_username (username)
+  UNIQUE KEY uk_username (username),
+  KEY idx_email (email)
 );
 
+-- product: GET 조회가 PK(id) 기준 -> 추가 인덱스 불필요
 CREATE TABLE IF NOT EXISTS product (
   id         VARCHAR(255) NOT NULL,
   name       VARCHAR(255) NOT NULL,
@@ -23,6 +26,8 @@ CREATE TABLE IF NOT EXISTS product (
   PRIMARY KEY (id)
 );
 
--- 성능 효율성 참고: product 는 동일 id 조회가 빈번 -> PK(id) 조회로 최적.
--- user 는 email 로 GET 조회 -> 필요 시 email 인덱스 추가 검토.
--- ALTER TABLE user ADD INDEX idx_email (email);
+-- 이미 테이블이 존재(인덱스 없이 생성됨)하는 경우에도 idx_email 보장 (멱등)
+SET @idx := (SELECT COUNT(*) FROM information_schema.statistics
+             WHERE table_schema = 'dev' AND table_name = 'user' AND index_name = 'idx_email');
+SET @ddl := IF(@idx = 0, 'ALTER TABLE user ADD INDEX idx_email (email)', 'DO 0');
+PREPARE s FROM @ddl; EXECUTE s; DEALLOCATE PREPARE s;

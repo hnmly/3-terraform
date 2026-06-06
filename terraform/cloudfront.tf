@@ -20,6 +20,34 @@ data "aws_cloudfront_origin_request_policy" "all_viewer" {
   name = "Managed-AllViewer"
 }
 
+# product GET 전용 캐시 정책: id 기준으로만 캐시(requestid/uuid 는 캐시키 제외), 짧은 TTL
+resource "aws_cloudfront_cache_policy" "product" {
+  count = var.enable_cloudfront ? 1 : 0
+
+  name        = "${local.name}-product-cache"
+  min_ttl     = 0
+  default_ttl = 3
+  max_ttl     = 5
+
+  parameters_in_cache_key_and_forwarded_to_origin {
+    enable_accept_encoding_gzip   = true
+    enable_accept_encoding_brotli = true
+
+    query_strings_config {
+      query_string_behavior = "whitelist"
+      query_strings {
+        items = ["id"]
+      }
+    }
+    headers_config {
+      header_behavior = "none"
+    }
+    cookies_config {
+      cookie_behavior = "none"
+    }
+  }
+}
+
 # S3 오리진 접근용 OAC
 resource "aws_cloudfront_origin_access_control" "s3" {
   count = var.enable_cloudfront ? 1 : 0
@@ -81,6 +109,20 @@ resource "aws_cloudfront_distribution" "main" {
     compress = true
   }
 
+  # --- /v1/product : 동일 id 빈번 조회 -> id 기준 캐싱 (성능/비용/가용성). GET/HEAD 만 캐시, 쓰기는 통과 ---
+  ordered_cache_behavior {
+    path_pattern           = "/v1/product"
+    target_origin_id       = "alb-api"
+    viewer_protocol_policy = "redirect-to-https"
+
+    allowed_methods = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
+    cached_methods  = ["GET", "HEAD"]
+
+    cache_policy_id          = aws_cloudfront_cache_policy.product[0].id
+    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+
+    compress = true
+  }
   # --- /images/* : S3 정적 컨텐츠 (캐시 최적화) ---
   ordered_cache_behavior {
     path_pattern           = "/images/*"
